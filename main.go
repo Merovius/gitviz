@@ -30,6 +30,11 @@ type Reference struct {
 	id *git.Oid
 }
 
+type SymbolicReference struct {
+	name string
+	*git.Reference
+}
+
 var shorten int
 
 func (b *Blob) String() string {
@@ -56,6 +61,18 @@ func (c *Commit) String() string {
 func (r *Reference) String() string {
 	s := fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#9999ff\"]\n", r.name)
 	s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.id.String()[:shorten])
+	return s
+}
+
+func (r *SymbolicReference) String() string {
+	var s string
+	if r.Type() == git.SYMBOLIC {
+		s = fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
+		s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.SymbolicTarget())
+	} else {
+		s = fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
+		s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.Target().String()[:shorten]);
+	}
 	return s
 }
 
@@ -125,6 +142,12 @@ func main () {
 		}
 		stuff[refname] = &Reference{ refname, ref.Target() }
 	}
+
+	ref, err := repo.LookupReference("HEAD")
+	if err != nil {
+		log.Fatal(err)
+	}
+	stuff["HEAD"] = &SymbolicReference{ "HEAD", ref }
 
 	shorten, err = git.ShortenOids(oids, 4)
 	if err != nil {

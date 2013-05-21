@@ -1,7 +1,7 @@
 gitviz - Visualize git-repositories with graphviz
 =================================================
 
-gitvis is a small piece of software written in [go](http://golang.org), backed
+gitviz is a small piece of software written in [go](http://golang.org), backed
 by [libgit2](http://libgit2.github.com/) to visualize git-repositories using
 graphviz. It will output text that can be fed into
 [graphviz](http://www.graphviz.org/)-tools such as dot to produce colored

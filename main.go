@@ -22,6 +22,12 @@ type Commit struct {
 	*git.Commit
 	id *git.Oid
 	tree *git.Oid
+	parents []*git.Oid
+}
+
+type Reference struct {
+	name string
+	id *git.Oid
 }
 
 var shorten int
@@ -41,6 +47,15 @@ func (t *Tree) String() string {
 func (c *Commit) String() string {
 	s := fmt.Sprintf("\"%s\" [shape=hexagon,style=filled,fillcolor=\"#ffff99\"]\n", c.id.String()[:shorten])
 	s += fmt.Sprintf("\"%s\" -> \"%s\"", c.id.String()[:shorten], c.tree.String()[:shorten])
+	for _, p := range(c.parents) {
+		s += fmt.Sprintf("\n\"%s\" -> \"%s\"", c.id.String()[:shorten], p.String()[:shorten])
+	}
+	return s
+}
+
+func (r *Reference) String() string {
+	s := fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#9999ff\"]\n", r.name)
+	s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.id.String()[:shorten])
 	return s
 }
 
@@ -88,12 +103,29 @@ func main () {
 			}
 			oids = append(oids, oid)
 		case *git.Commit:
-			co := &Commit{ obj, oid, obj.TreeId() }
+			co := &Commit{ obj, oid, obj.TreeId(), nil }
+			for i := uint(0); i < obj.ParentCount(); i++ {
+				co.parents = append(co.parents, obj.ParentId(i))
+			}
 			stuff[oid.String()] = co
 			oids = append(oids, oid)
 		}
 
 	}
+
+	iter, err := repo.NewReferenceIterator()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for refname := range(iter.Iter()) {
+		ref, err := repo.LookupReference(refname)
+		if err != nil {
+			log.Fatal(err)
+		}
+		stuff[refname] = &Reference{ refname, ref.Target() }
+	}
+
 	shorten, err = git.ShortenOids(oids, 4)
 	if err != nil {
 		log.Fatal(err)

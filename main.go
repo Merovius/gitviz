@@ -151,7 +151,7 @@ func main() {
 
 	shorten, err = git.ShortenOids(oids, 4)
 	if err != nil {
-		log.Fatal(err)
+		shorten = 40
 	}
 
 	fmt.Println("digraph G {")

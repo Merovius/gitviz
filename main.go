@@ -38,13 +38,13 @@ type SymbolicReference struct {
 var shorten int
 
 func (b *Blob) String() string {
-	return fmt.Sprintf("\"%s\" [shape=plaintext]", b.id.String()[:shorten])
+	return fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ddddff\",color=\"#bbbbff\"]", b.id.String()[:shorten])
 }
 
 func (t *Tree) String() string {
 	s := fmt.Sprintf("\"%s\" [shape=oval,style=filled,fillcolor=\"#99ff99\"]", t.id.String()[:shorten])
 	for _, e := range t.entries {
-		s += fmt.Sprintf("\n\"%s\" -> \"%s\" [label=\"%s\"]", t.id.String()[:shorten], e.Id.String()[:shorten], e.Name)
+		s += fmt.Sprintf("\n\"%s\" -> \"%s\" [label=\"%s\",fontcolor=\"#666666\"]", t.id.String()[:shorten], e.Id.String()[:shorten], e.Name)
 	}
 	return s
 }

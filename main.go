@@ -5,7 +5,13 @@ import (
 	"fmt"
 	"github.com/Merovius/git2go"
 	"log"
+	"io"
+	"os"
 )
+
+type Dumper interface {
+	Dump(io.Writer)
+}
 
 type Blob struct {
 	*git.Blob
@@ -37,47 +43,45 @@ type SymbolicReference struct {
 
 var shorten int
 
-func (b *Blob) String() string {
-	return fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ddddff\",color=\"#bbbbff\"]", b.id.String()[:shorten])
+func (b *Blob) Dump(w io.Writer) {
+	fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#ddddff\",color=\"#bbbbff\"]\n", b.id.String()[:shorten])
 }
 
-func (t *Tree) String() string {
-	s := fmt.Sprintf("\"%s\" [shape=oval,style=filled,fillcolor=\"#99ff99\"]", t.id.String()[:shorten])
+func (t *Tree) Dump(w io.Writer) {
+	fmt.Fprintf(w, "\"%s\" [shape=oval,style=filled,fillcolor=\"#99ff99\"]\n", t.id.String()[:shorten])
 	for _, e := range t.entries {
-		s += fmt.Sprintf("\n\"%s\" -> \"%s\" [label=\"%s\",fontcolor=\"#666666\"]", t.id.String()[:shorten], e.Id.String()[:shorten], e.Name)
+		fmt.Fprintf(w, "\"%s\" -> \"%s\" [label=\"%s\",fontcolor=\"#666666\"]\n", t.id.String()[:shorten], e.Id.String()[:shorten], e.Name)
 	}
-	return s
 }
 
-func (c *Commit) String() string {
-	s := fmt.Sprintf("\"%s\" [shape=hexagon,style=filled,fillcolor=\"#ffff99\"]\n", c.id.String()[:shorten])
-	s += fmt.Sprintf("\"%s\" -> \"%s\"", c.id.String()[:shorten], c.tree.String()[:shorten])
+func (c *Commit) Dump(w io.Writer) {
+	fmt.Fprintf(w, "\"%s\" [shape=hexagon,style=filled,fillcolor=\"#ffff99\"]\n",
+		c.id.String()[:shorten])
+	fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", c.id.String()[:shorten], c.tree.String()[:shorten])
 	for _, p := range c.parents {
-		s += fmt.Sprintf("\n\"%s\" -> \"%s\"", c.id.String()[:shorten], p.String()[:shorten])
+		fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", c.id.String()[:shorten], p.String()[:shorten])
 	}
-	return s
 }
 
-func (r *Reference) String() string {
-	s := fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#9999ff\"]\n", r.name)
-	s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.id.String()[:shorten])
-	return s
+func (r *Reference) Dump(w io.Writer) {
+	fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#9999ff\"]\n", r.name)
+	fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", r.name, r.id.String()[:shorten])
 }
 
-func (r *SymbolicReference) String() string {
-	var s string
+func (r *SymbolicReference) Dump(w io.Writer) {
 	if r.Type() == git.SYMBOLIC {
-		s = fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
-		s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.SymbolicTarget())
+		fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
+		fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", r.name, r.SymbolicTarget())
 	} else {
-		s = fmt.Sprintf("\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
-		s += fmt.Sprintf("\"%s\" -> \"%s\"", r.name, r.Target().String()[:shorten])
+		fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
+		fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", r.name, r.Target().String()[:shorten])
 	}
-	return s
 }
 
 func main() {
+	noBrokenHead := flag.Bool("no-broken-head", false, "Hide a broken HEAD-ref")
 	flag.Parse()
+
 	var dir string
 	var err error
 	if flag.NArg() > 0 {
@@ -98,13 +102,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	stuff := make(map[string]fmt.Stringer)
+	stuff := make(map[string]Dumper)
 	var oids []*git.Oid
 
 	for oid := range odb.ForEach() {
 		obj, err := repo.Lookup(oid)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("Lookup:", err)
 		}
 		switch obj := obj.(type) {
 		default:
@@ -127,7 +131,6 @@ func main() {
 			stuff[oid.String()] = co
 			oids = append(oids, oid)
 		}
-
 	}
 
 	iter, err := repo.NewReferenceIterator()
@@ -147,7 +150,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stuff["HEAD"] = &SymbolicReference{"HEAD", ref}
+
+	if !*noBrokenHead ||
+			(ref.Type() == git.SYMBOLIC && stuff[ref.SymbolicTarget()] != nil) ||
+			(ref.Type() == git.OID && stuff[ref.Target().String()] != nil) {
+		stuff["HEAD"] = &SymbolicReference{"HEAD", ref}
+	}
 
 	shorten, err = git.ShortenOids(oids, 4)
 	if err != nil {
@@ -155,8 +163,8 @@ func main() {
 	}
 
 	fmt.Println("digraph G {")
-	for _, str := range stuff {
-		fmt.Println(str.String())
+	for _, dp := range stuff {
+		dp.Dump(os.Stdout)
 	}
 	fmt.Println("}")
 }

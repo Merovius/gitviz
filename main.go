@@ -1,6 +1,7 @@
 package main
 
 import (
+	"code.google.com/p/go.exp/inotify"
 	"flag"
 	"fmt"
 	"github.com/Merovius/git2go"
@@ -8,6 +9,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"syscall"
+	"time"
 )
 
 var noBrokenHead bool
@@ -154,22 +157,26 @@ func DumpRepo(repo *git.Repository, w io.Writer) {
 	fmt.Fprintln(w, "}")
 }
 
-func ShowRepo(repo *git.Repository) {
-	cmd := exec.Command("dot", "-Tx11")
-	inp, err := cmd.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = cmd.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
+func WatchRepo(repo *git.Repository, ch chan bool) {
+	for {
+		cmd := exec.Command("dot", "-Tx11")
+		inp, err := cmd.StdinPipe()
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = cmd.Start()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	DumpRepo(repo, inp)
-	inp.Close()
-	err = cmd.Wait()
-	if err != nil {
-		log.Fatal(err)
+		DumpRepo(repo, inp)
+		inp.Close()
+
+		/* Wait for updates */
+		<-ch
+
+		cmd.Process.Signal(syscall.SIGTERM)
+		cmd.Wait()
 	}
 }
 
@@ -201,5 +208,30 @@ func main() {
 	/* Get the path of the git-repository */
 	dir = repo.Path()
 
-	ShowRepo(repo)
+	update := make(chan bool)
+	go WatchRepo(repo, update)
+	update <- true
+
+	watcher, err := inotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = watcher.AddWatch(dir, inotify.IN_CREATE|inotify.IN_DELETE|inotify.IN_MODIFY|inotify.IN_MOVE)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var ch <-chan time.Time
+	for {
+		select {
+		case ev := <-watcher.Event:
+			log.Println(ev)
+			ch = time.After(time.Second)
+		case err = <-watcher.Error:
+			log.Fatal(err)
+		case <-ch:
+			update <- true
+		}
+	}
 }

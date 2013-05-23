@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 )
 
 var noBrokenHead bool
@@ -153,8 +154,28 @@ func DumpRepo(repo *git.Repository, w io.Writer) {
 	fmt.Fprintln(w, "}")
 }
 
+func ShowRepo(repo *git.Repository) {
+	cmd := exec.Command("dot", "-Tx11")
+	inp, err := cmd.StdinPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	DumpRepo(repo, inp)
+	inp.Close()
+	err = cmd.Wait()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	flag.BoolVar(&noBrokenHead, "no-broken-head", false, "Hide a broken HEAD-ref")
+	watch := flag.Bool("watch", false, "Watch repository with inotify")
 	flag.Parse()
 
 	var dir string
@@ -172,5 +193,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	DumpRepo(repo, os.Stdout)
+	if !*watch {
+		DumpRepo(repo, os.Stdout)
+		return
+	}
+
+	/* Get the path of the git-repository */
+	dir = repo.Path()
+
+	ShowRepo(repo)
 }

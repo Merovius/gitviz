@@ -4,13 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Merovius/git2go"
-	"log"
 	"io"
+	"log"
 	"os"
 )
 
+var noBrokenHead bool
+
 type Dumper interface {
-	Dump(io.Writer)
+	Dump(shorten int, w io.Writer)
 }
 
 type Blob struct {
@@ -43,18 +45,18 @@ type SymbolicReference struct {
 
 var shorten int
 
-func (b *Blob) Dump(w io.Writer) {
+func (b *Blob) Dump(shorten int, w io.Writer) {
 	fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#ddddff\",color=\"#bbbbff\"]\n", b.id.String()[:shorten])
 }
 
-func (t *Tree) Dump(w io.Writer) {
+func (t *Tree) Dump(shorten int, w io.Writer) {
 	fmt.Fprintf(w, "\"%s\" [shape=oval,style=filled,fillcolor=\"#99ff99\"]\n", t.id.String()[:shorten])
 	for _, e := range t.entries {
 		fmt.Fprintf(w, "\"%s\" -> \"%s\" [label=\"%s\",fontcolor=\"#666666\"]\n", t.id.String()[:shorten], e.Id.String()[:shorten], e.Name)
 	}
 }
 
-func (c *Commit) Dump(w io.Writer) {
+func (c *Commit) Dump(shorten int, w io.Writer) {
 	fmt.Fprintf(w, "\"%s\" [shape=hexagon,style=filled,fillcolor=\"#ffff99\"]\n",
 		c.id.String()[:shorten])
 	fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", c.id.String()[:shorten], c.tree.String()[:shorten])
@@ -63,12 +65,12 @@ func (c *Commit) Dump(w io.Writer) {
 	}
 }
 
-func (r *Reference) Dump(w io.Writer) {
+func (r *Reference) Dump(shorten int, w io.Writer) {
 	fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#9999ff\"]\n", r.name)
 	fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", r.name, r.id.String()[:shorten])
 }
 
-func (r *SymbolicReference) Dump(w io.Writer) {
+func (r *SymbolicReference) Dump(shorten int, w io.Writer) {
 	if r.Type() == git.SYMBOLIC {
 		fmt.Fprintf(w, "\"%s\" [shape=box,style=filled,fillcolor=\"#ff9999\"]\n", r.name)
 		fmt.Fprintf(w, "\"%s\" -> \"%s\"\n", r.name, r.SymbolicTarget())
@@ -78,32 +80,14 @@ func (r *SymbolicReference) Dump(w io.Writer) {
 	}
 }
 
-func main() {
-	noBrokenHead := flag.Bool("no-broken-head", false, "Hide a broken HEAD-ref")
-	flag.Parse()
-
-	var dir string
-	var err error
-	if flag.NArg() > 0 {
-		dir = flag.Arg(0)
-	} else {
-		dir, err = git.Discover(".", false, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	repo, err := git.OpenRepository(dir)
-	if err != nil {
-		log.Fatal(err)
-	}
+func DumpRepo(repo *git.Repository, w io.Writer) {
+	stuff := make(map[string]Dumper)
+	var oids []*git.Oid
 
 	odb, err := repo.Odb()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	stuff := make(map[string]Dumper)
-	var oids []*git.Oid
 
 	for oid := range odb.ForEach() {
 		obj, err := repo.Lookup(oid)
@@ -151,20 +135,42 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if !*noBrokenHead ||
-			(ref.Type() == git.SYMBOLIC && stuff[ref.SymbolicTarget()] != nil) ||
-			(ref.Type() == git.OID && stuff[ref.Target().String()] != nil) {
+	if !noBrokenHead ||
+		(ref.Type() == git.SYMBOLIC && stuff[ref.SymbolicTarget()] != nil) ||
+		(ref.Type() == git.OID && stuff[ref.Target().String()] != nil) {
 		stuff["HEAD"] = &SymbolicReference{"HEAD", ref}
 	}
 
-	shorten, err = git.ShortenOids(oids, 4)
+	shorten, err := git.ShortenOids(oids, 4)
 	if err != nil {
 		shorten = 40
 	}
 
-	fmt.Println("digraph G {")
+	fmt.Fprintln(w, "digraph G {")
 	for _, dp := range stuff {
-		dp.Dump(os.Stdout)
+		dp.Dump(shorten, w)
 	}
-	fmt.Println("}")
+	fmt.Fprintln(w, "}")
+}
+
+func main() {
+	flag.BoolVar(&noBrokenHead, "no-broken-head", false, "Hide a broken HEAD-ref")
+	flag.Parse()
+
+	var dir string
+	var err error
+	if flag.NArg() > 0 {
+		dir = flag.Arg(0)
+	} else {
+		dir, err = git.Discover(".", false, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	repo, err := git.OpenRepository(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	DumpRepo(repo, os.Stdout)
 }
